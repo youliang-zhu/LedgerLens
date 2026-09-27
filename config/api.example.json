@@ -1,0 +1,8 @@
+{
+  "protocol": "responses",
+  "endpoint": "",
+  "model": "gpt-6-astra",
+  "key_env": "BOOKKEEPING_REVIEW_API_KEY",
+  "max_output_tokens": 12000,
+  "timeout_seconds": 180
+}

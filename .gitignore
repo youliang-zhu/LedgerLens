@@ -1,0 +1,38 @@
+# Private statements, review exports, API request/response logs and screenshots
+.local/
+private/
+data/
+*.csv
+*.tsv
+*.xls
+*.xlsx
+*.zip
+*.log
+truth*.json
+dataset.json
+request*.json
+response*.json
+review.html
+!evalkit/review.html
+
+# Credentials and machine-specific configuration
+.env
+.env.*
+!.env.example
+api.local.json
+*.pem
+*.key
+
+# Runtime and build outputs
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+node_modules/
+research-sources/
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+.DS_Store
+Thumbs.db
