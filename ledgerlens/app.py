@@ -172,6 +172,8 @@ def handler(app):
                 return self.respond({'error': 'Invalid host'}, 403)
             path = urlsplit(self.path).path
             assets = {'/': ('index.html', 'text/html; charset=utf-8'),
+                      '/favicon.ico': ('icon.ico', 'image/x-icon'),
+                      '/ll/icon.png': ('icon.png', 'image/png'),
                       '/ll/ui.js': ('ui.js', 'text/javascript; charset=utf-8'),
                       '/ll/ui.css': ('ui.css', 'text/css; charset=utf-8')}
             if path in assets:

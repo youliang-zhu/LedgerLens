@@ -24,11 +24,15 @@ def main():
             print(url, flush=True)
             threading.Event().wait()
         else:
+            if sys.platform == 'win32':
+                import ctypes
+                ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('LedgerLens.Desktop')
             import webview
             window = webview.create_window('LedgerLens', url, width=1180, height=820, min_size=(760, 600))
             app.window = window
             # Private mode keeps browser authentication out of a normal browser profile.
-            webview.start(gui='edgechromium', private_mode=True)
+            webview.start(gui='edgechromium', private_mode=True,
+                          icon=str(PROJECT / 'ledgerlens' / 'static' / 'icon.ico'))
     except KeyboardInterrupt:
         pass
     except Exception as exc:
