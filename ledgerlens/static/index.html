@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LedgerLens</title><link rel="stylesheet" href="/ll/ui.css">
+<header><strong>LedgerLens</strong><nav><button id="reviewTab">账单与审核</button><button id="dashboardTab">统计看板</button></nav><span>仅本机 · 自动保存</span></header>
+<div id="notice" role="status">正在连接本地账本…</div>
+<main id="review">
+<section class="upload"><div><h1>每月导入，一次核对</h1><p>原文件保留在本机。相同交易编号重复上传不会新增记录。</p></div>
+<div class="files"><label>微信账单（XLSX）<input id="wechat" type="file" accept=".xlsx"></label><label>支付宝账单（CSV）<input id="alipay" type="file" accept=".csv"></label></div>
+<div class="actions"><label><input id="ai" type="checkbox" checked> 导入后运行独立 AI 检查</label><button class="primary" id="upload">导入账单</button></div>
+<p class="small">AI 使用已配置的 API，可能产生费用。发送时间、金额、状态及替换后的标识，不发送姓名、原订单号、商品描述；并非完全匿名。AI 只提疑点，不自动确认。</p></section>
+<div class="toolbar"><h2 id="count">待审核</h2><select id="filter" aria-label="记录状态"><option value="pending">待审核</option><option value="deferred">已暂缓</option><option value="approved">已确认待入账</option><option value="all">全部记录</option></select><input id="search" placeholder="搜索对方、金额或来源编号" aria-label="搜索"><button id="publish">入账已确认记录</button></div>
+<p id="job" role="status"></p><details id="aiDetails"><summary>AI 检查状态</summary><div id="batches"></div></details>
+<div class="workspace"><div id="list"></div><section id="detail"><p>请选择一条记录。</p></section></div>
+<p class="small">本版先逐笔确认。自有转账、不计收支及重复项保留审核记录，不进入收支看板；看板账户是流水统计容器，不代表真实资产余额。已入账记录暂不支持在此修改。</p>
+</main>
+<section id="dashboard" hidden><p class="small">仅展示已入账记录。要修改账目，请回到审核入口；原生导入与编辑写入已禁用，避免绕过审核。</p><iframe id="ezframe" title="ezBookkeeping 统计看板"></iframe></section>
+<script src="/ll/ui.js"></script></html>

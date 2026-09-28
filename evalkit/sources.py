@@ -61,7 +61,7 @@ def read_rows(path, platform):
         wb.close()
 
 
-def parse(path, platform):
+def parse(path, platform, *, experiment_scope=True):
     rows, fmt = read_rows(path, platform)
     indexes = [i for i, row in enumerate(rows) if '交易时间' in [clean(v) for v in row]]
     if len(indexes) != 1:
@@ -94,7 +94,7 @@ def parse(path, platform):
             dt = datetime.strptime(date, '%Y-%m-%d %H:%M:%S')
         except ValueError as exc:
             raise ValueError(f'Unparsed nonempty row {row_number}; refusing silent skip') from exc
-        if not datetime(2026, 8, 27) <= dt < datetime(2026, 9, 28):
+        if experiment_scope and not datetime(2026, 8, 27) <= dt < datetime(2026, 9, 28):
             raise ValueError('Source date outside current experiment scope')
         tid = raw.get(mapping['transaction_id'], '')
         if not tid or re.search(r'\d[Ee][+-]?\d', tid):
