@@ -19,6 +19,34 @@ const buttons=el('div',undefined,'buttons');for(const [action,title,cls]of[['con
 $('filter').onchange=$('search').oninput=()=>{renderList();renderDetail();};
 $('upload').onclick=()=>guarded(async()=>{const files=[];for(const platform of ['wechat','alipay']){const f=$(platform).files[0];if(!f)continue;if(f.size>15*1024*1024)throw Error('单个文件不能超过 15 MB');const content=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result.split(',')[1]);reader.onerror=reject;reader.readAsDataURL(f);});files.push({platform,name:f.name,content});}if(!files.length)throw Error('请先选择账单');const result=await api('/ll/upload',{files,ai:$('ai').checked});$('wechat').value=$('alipay').value='';await refresh();alert(`新增 ${result.added} 笔，已存在 ${result.skipped} 笔。`);});
 $('publish').onclick=()=>guarded(async()=>{const result=await api('/ll/publish',{});await refresh();alert(`本次写入收支账本 ${result.posted_now} 笔。`);});
-$('reviewTab').onclick=()=>{$('review').hidden=false;$('dashboard').hidden=true;refresh().catch(e=>alert(e.message));};
-$('dashboardTab').onclick=()=>guarded(async()=>{await refresh(true);const session=await api('/ll/ez-session');localStorage.setItem('ebk_user_token',session.token);localStorage.setItem('ebk_user_info',JSON.stringify(session.user));$('review').hidden=true;$('dashboard').hidden=false;$('ezframe').src='/desktop#/statistics/transaction?analysisType=0&chartDataType=2&chartDateType=0';});
+function showTab(id){for(const tab of ['review','dashboard','archives'])$(tab).hidden=tab!==id;}
+async function renderArchives(){
+    const data=await api('/ll/archives');
+    $('archiveRoot').textContent='保存位置：'+data.root;
+    $('archiveList').replaceChildren();
+    if(!data.archives.length)$('archiveList').append(el('p','还没有保存的账单，请先在“账单与审核”中上传。'));
+    const statuses={imported:'已导入',failed:'导入失败，原件保留',unfinished:'未完成导入／历史存档',damaged:'存档清单异常，请检查目录'};
+    const integrity={ok:'原件校验通过',changed:'警告：原件已被修改',missing:'警告：原件缺失',unverified:'原件存在，无历史校验值'};
+    for(const a of data.archives){
+        const card=el('article',undefined,'archive-card');
+        card.append(el('h2',statuses[a.status]));
+        const date=a.saved_at?new Date(a.saved_at).toLocaleString():'未知';
+        card.append(el('p',`${a.time_estimated?'目录时间（历史上传时间未知）':'上传时间'}：${date}`,'small'));
+        if(a.added!==null&&a.added!==undefined)card.append(el('p',`新增 ${a.added} 笔，跳过已存在 ${a.skipped} 笔。`,'small'));
+        for(const f of a.files){
+            const file=el('div',undefined,'archive-file');
+            file.append(el('strong',f.name));
+            file.append(el('p',`${{wechat:'微信',alipay:'支付宝'}[f.platform]||'未知来源'} · ${f.count===null?'未解析':f.count+' 笔原始流水'}${f.start?' · '+f.start+' 至 '+f.end:''} · ${integrity[f.integrity]}`));
+            file.append(el('p',f.path,'small'));
+            card.append(file);
+        }
+        const open=el('button','打开所在文件夹');
+        open.onclick=()=>guarded(()=>api('/ll/archive/open',{id:a.id}));
+        card.append(open);$('archiveList').append(card);
+    }
+}
+$('reviewTab').onclick=()=>{showTab('review');refresh().catch(e=>alert(e.message));};
+$('archiveTab').onclick=()=>guarded(async()=>{showTab('archives');await renderArchives();});
+$('archiveRefresh').onclick=()=>guarded(renderArchives);
+$('dashboardTab').onclick=()=>guarded(async()=>{await refresh(true);const session=await api('/ll/ez-session');localStorage.setItem('ebk_user_token',session.token);localStorage.setItem('ebk_user_info',JSON.stringify(session.user));showTab('dashboard');$('ezframe').src='/desktop#/statistics/transaction?analysisType=0&chartDataType=2&chartDateType=0';});
 (async()=>{try{const key=new URLSearchParams(location.hash.slice(1)).get('key');if(key){await api('/ll/session',{key});history.replaceState(null,'','/');}await refresh();setInterval(()=>{if(state?.job.state==='running'&&!busy)refresh(true).then(()=>{if(state.job.state!=='running')renderDetail();}).catch(()=>{});},3000);}catch(e){$('notice').textContent=e.message;}})();

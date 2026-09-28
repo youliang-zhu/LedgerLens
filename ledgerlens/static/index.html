@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>LedgerLens</title><link rel="icon" href="/favicon.ico"><link rel="stylesheet" href="/ll/ui.css">
-<header><strong class="brand"><img src="/ll/icon.png" width="36" height="36" alt="">LedgerLens</strong><nav><button id="reviewTab">账单与审核</button><button id="dashboardTab">统计看板</button></nav><span>仅本机 · 自动保存</span></header>
+<header><strong class="brand"><img src="/ll/icon.png" width="36" height="36" alt="">LedgerLens</strong><nav><button id="reviewTab">账单与审核</button><button id="archiveTab">账单管理</button><button id="dashboardTab">统计看板</button></nav><span>仅本机 · 自动保存</span></header>
 <div id="notice" role="status">正在连接本地账本…</div>
 <main id="review">
 <section class="upload"><div><h1>每月导入，一次核对</h1><p>原文件保留在本机。相同交易编号重复上传不会新增记录。</p></div>
@@ -14,4 +14,9 @@
 <p class="small">本版先逐笔确认。自有转账、不计收支及重复项保留审核记录，不进入收支看板；看板账户是流水统计容器，不代表真实资产余额。已入账记录暂不支持在此修改。</p>
 </main>
 <section id="dashboard" hidden><p class="small">仅展示已入账记录。要修改账目，请回到审核入口；原生导入与编辑写入已禁用，避免绕过审核。</p><iframe id="ezframe" title="ezBookkeeping 统计看板"></iframe></section>
+<section id="archives" hidden>
+<h1>本地账单原件</h1><p>上传文件按批次独立保存，不覆盖旧文件；审核、入账和小额屏蔽均不删除原件。解析失败的已接收文件也会保留。</p>
+<p class="small">本机保存不等于备份。换电脑或重装前，请关闭软件并备份整个 .local/app 目录。</p>
+<p id="archiveRoot" class="small"></p><button id="archiveRefresh">刷新并校验原件</button><div id="archiveList" aria-live="polite"></div>
+</section>
 <script src="/ll/ui.js"></script></html>

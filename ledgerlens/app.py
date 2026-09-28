@@ -1,5 +1,6 @@
 """Loopback-only UI, durable review queue, and on-demand native ledger."""
 import base64
+import hashlib
 import json
 import mimetypes
 import os
@@ -12,12 +13,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from evalkit.common import canonical, digest, load, save_new
+from evalkit.common import canonical, digest, load, save_new, now
 from evalkit.sources import parse
 from evalkit.ai import make_request, send
 from evalkit.api_config import load_api_config
 from .store import Store, suppressed
 from .ez import Ez, local_open
+from .archive import Archive
 
 PROJECT = Path(__file__).resolve().parent.parent
 STATIC = Path(__file__).with_name('static')
@@ -31,6 +33,7 @@ class App:
         self.secret = secrets.token_urlsafe(32)
         self.cookie = secrets.token_urlsafe(32)
         self.store = Store(self.root / 'review.db')
+        self.archive = Archive(self.root, self.store)
         self.store.recover_interrupted()
         self.ez = Ez(runtime, self.root / 'ez', ez_port)
         self.lock = threading.RLock()
@@ -59,9 +62,7 @@ class App:
     def upload(self, files):
         if not isinstance(files, list) or not 1 <= len(files) <= 2:
             raise ValueError('每次请选择 1–2 个账单文件。')
-        folder = self.root / 'originals' / secrets.token_hex(12)
-        folder.mkdir(parents=True)
-        records, sources, platforms = [], [], set()
+        prepared, platforms = [], set()
         for f in files:
             platform = f['platform']
             if platform not in ('wechat', 'alipay') or platform in platforms:
@@ -73,21 +74,39 @@ class App:
             raw = base64.b64decode(f['content'], validate=True)
             if len(raw) > 15 * 1024 * 1024:
                 raise ValueError('单个文件不能超过 15 MB。')
-            dest = folder / (platform + suffix)
-            # Application persistence of user-uploaded evidence, never a source rewrite.
-            with dest.open('xb') as stream:
-                stream.write(raw)
-            rows, source = parse(dest, platform, experiment_scope=False)
-            records.extend(rows)
-            source['original_name'] = Path(f['name']).name
-            sources.append(source)
-        dates = [r['datetime'][:10] for r in records]
-        payload = {'schema_version': 1, 'parser_version': 'sources-v1-open-dates', 'sources': sources,
-                   'records': records, 'scope': {'start': min(dates) if dates else None,
-                   'end': max(dates) if dates else None, 'bank_cross_source': 'not_tested'}}
-        data = {'dataset_id': digest(payload), **payload}
-        save_new(folder / 'dataset.json', data)
-        result = self.store.ingest(data)
+            prepared.append(({'platform': platform, 'filename': platform + suffix,
+                              'original_name': Path(f['name']).name, 'sha256': hashlib.sha256(raw).hexdigest()}, raw))
+        folder = self.root / 'originals' / secrets.token_hex(12)
+        folder.mkdir(parents=True, exist_ok=False)
+        save_new(folder / 'upload.json', {'saved_at': now(), 'files': [m for m, _ in prepared]})
+        try:
+            # Persist ALL supplied originals before parsing either of them.
+            for manifest, raw in prepared:
+                with (folder / manifest['filename']).open('xb') as stream:
+                    stream.write(raw)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+            records, sources = [], []
+            for manifest, _ in prepared:
+                rows, source = parse(folder / manifest['filename'], manifest['platform'], experiment_scope=False)
+                records.extend(rows)
+                source['original_name'] = manifest['original_name']
+                sources.append(source)
+            dates = [r['datetime'][:10] for r in records]
+            payload = {'schema_version': 1, 'parser_version': 'sources-v1-open-dates', 'sources': sources,
+                       'records': records, 'scope': {'start': min(dates) if dates else None,
+                       'end': max(dates) if dates else None, 'bank_cross_source': 'not_tested'}}
+            data = {'dataset_id': digest(payload), **payload}
+            save_new(folder / 'dataset.json', data)
+            result = self.store.ingest(data)
+        except Exception:
+            save_new(folder / 'outcome.json', {'status': 'failed'})
+            raise
+        # Do not report a committed import as failed if only its receipt cannot be saved.
+        try:
+            save_new(folder / 'outcome.json', {'status': 'imported', **result})
+        except OSError:
+            pass
         return result
 
     def run_ai(self, batch):
@@ -183,6 +202,9 @@ def handler(app):
                 return self.respond({'error': '请通过桌面入口打开 LedgerLens。'}, 401)
             if path == '/ll/state':
                 return self.respond(app.snapshot())
+            if path == '/ll/archives':
+                with app.lock:
+                    return self.respond(app.archive.catalog())
             if path == '/ll/ez-session':
                 return self.respond(app.ez.frontend_session())
             # Only read-only native UI/API paths, fixed loopback destination.
@@ -252,6 +274,10 @@ def handler(app):
                     elif self.path == '/ll/ai':
                         app.run_ai(payload['batch_id'])
                         result = {'started': True}
+                    elif self.path == '/ll/archive/open':
+                        folder = app.archive.folder(payload.get('id'))
+                        os.startfile(str(folder))
+                        result = {'opened': True}
                     else:
                         return self.respond({'error': 'Not found'}, 404)
                 self.respond(result)
