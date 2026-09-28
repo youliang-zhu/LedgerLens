@@ -1,8 +1,10 @@
 import copy
 import json
+import io
 import os
 import tempfile
 import unittest
+from urllib.error import HTTPError
 from pathlib import Path
 from unittest.mock import patch
 from evalkit.common import digest, save_new, load_dataset
@@ -177,8 +179,28 @@ class ApiTest(unittest.TestCase):
         for value in ('PRIVATE-NAME', 'PRIVATE-CARD', 'PRIVATE-ORDER', 'PRIVATE-DESCRIPTION', 'PRIVATE-REMARK', 'SYNTHETIC ONLY'):
             self.assertNotIn(value, body)
 
+    def test_json_mode_marker_is_in_input_not_only_instructions(self):
+        self.assertIn('json', self.prepared['body']['input'].lower())
+
     def test_no_findings_is_not_correctness_pass(self):
         self.assertEqual(validate_response(self.review, self.prepared), 'completed_not_a_pass')
+
+    def test_merchant_embedded_in_source_type_is_not_sent(self):
+        self.data['records'][0]['type'] = 'SYNTHETIC-MERCHANT-退款'
+        prepared = make_request(self.data, self.candidate, self.truth, self.config)
+        self.assertNotIn('SYNTHETIC-MERCHANT', prepared['body']['input'])
+        self.assertEqual(json.loads(prepared['body']['input'])['records'][0]['type'], '商户退款')
+
+    def test_native_review_metadata_is_strictly_allowlisted(self):
+        self.candidate['entries'][0].update(native_kind='income', native_review_state='pending')
+        prepared = make_request(self.data, self.candidate, self.truth, self.config)
+        entry = json.loads(prepared['body']['input'])['entries'][0]
+        self.assertEqual(entry['native_kind'], 'income')
+        self.assertEqual(entry['native_review_state'], 'pending')
+        self.candidate['entries'][0].update(native_kind='PRIVATE-NAME', native_review_state='PRIVATE-REMARK')
+        prepared = make_request(self.data, self.candidate, self.truth, self.config)
+        self.assertNotIn('native_kind', json.loads(prepared['body']['input'])['entries'][0])
+        self.assertNotIn('PRIVATE-REMARK', prepared['body']['input'])
 
     def test_incomplete_coverage(self):
         self.review['checked_source_ids'].pop()
@@ -198,6 +220,19 @@ class ApiTest(unittest.TestCase):
     def test_no_implicit_send(self):
         with self.assertRaises(ValueError):
             send(self.prepared, self.config, 'must-not-be-created')
+
+    def test_http_error_retains_only_safe_identifiers(self):
+        def fail_transport(request):
+            body = {'error': {'type': 'invalid_request_error', 'param': 'input',
+                             'message': 'echo synthetic-secret PRIVATE-NAME'}}
+            raise HTTPError('https://example.invalid/v1/responses', 400, 'bad', {},
+                            io.BytesIO(json.dumps(body).encode()))
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {'EVALKIT_TEST_KEY': 'synthetic-secret'}):
+            result = send(self.prepared, self.config, Path(folder) / 'run', True, transport=fail_transport)
+            self.assertEqual(result['http_status'], 400)
+            self.assertEqual(result['provider_error_param'], 'input')
+            self.assertNotIn('synthetic-secret', json.dumps(result))
+            self.assertNotIn('PRIVATE-NAME', json.dumps(result))
 
     def test_endpoint_change_rejected(self):
         self.config['endpoint'] = 'https://another.invalid/v1/responses'

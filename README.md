@@ -55,10 +55,13 @@ python -m evalkit prepare --alipay /path/to/alipay.csv --wechat /path/to/wechat.
 
 示例配置见 `config/api.example.json`，固定提示词见 `prompts/reviewer-v1.txt`。当前选择 GPT-6 Astra；实际服务须支持配置的 Responses 接口。
 
-1. 将示例复制为 `api.local.json`，配置完整 HTTPS 地址和模型。
-2. 将密钥设为环境变量 `BOOKKEEPING_REVIEW_API_KEY`，不要写进源码或提交记录。
-3. 使用 `api-prepare` 生成本地请求预览，检查发送内容。
-4. 只有明确执行 `api-send --send` 才发送数据；可能产生服务商费用。
+1. 将 `config/api.example.json` 复制到仓库根目录，命名为 `api.local.json`。默认已填 OpenAI 官方地址和 `gpt-6-astra`；第三方密钥需要改成对应服务的 Responses 地址，不会自动猜测服务商。
+2. 将 `.env.example` 复制为根目录下的 `.env`，只在 `BOOKKEEPING_REVIEW_API_KEY=` 后粘贴密钥并保存。程序自动读取，无需设置系统环境变量；如已有同名进程环境变量，则优先使用它。
+3. 运行 `python -m evalkit api-check` 做离线检查。`ready_for_connection_test` 只说明配置可读取，不证明密钥有效、模型可用或额度足够；命令不联网、不显示密钥。
+4. 使用 `api-prepare` 生成本地请求预览，检查发送内容。API 命令默认读取根目录的 `api.local.json`，也可通过 `--config` 指定。
+5. 只有明确执行 `api-send --send` 才发送数据；可能产生服务商费用。密钥文件不会包含在请求日志中。
+
+`.env` 与 `api.local.json` 均已被 Git 忽略。`key_env` 是变量名称，不应填写真实密钥。`.env` 是本地明文文件，并非加密保险箱。接口格式参考 [OpenAI Docs](https://developers.openai.com/api/docs/quickstart)。
 
 默认隐藏部分个人标识与自由文本，但时间、金额等仍属个人交易数据，不是完全匿名数据。调用失败、覆盖不足或编造记录引用均不算通过。AI 只提出疑点，不修改账目。
 

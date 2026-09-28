@@ -6,6 +6,7 @@ from .sources import prepare
 from .rules import check, replay, truth_entries
 from .review import build_page
 from .ai import make_request, send
+from .api_config import DEFAULT_CONFIG, load_api_config, check_setup
 
 
 def main():
@@ -24,16 +25,22 @@ def main():
         if name in ('review-page', 'truth-check'):
             p.add_argument('--truth', required=True)
         if name == 'api-prepare':
-            p.add_argument('--config', required=True)
+            p.add_argument('--config', default=str(DEFAULT_CONFIG))
         if name == 'replay':
             p.add_argument('--before', required=True); p.add_argument('--after', required=True)
             p.add_argument('--evidence', required=True)
     p = commands.add_parser('api-send')
-    p.add_argument('--request', required=True); p.add_argument('--config', required=True)
+    p.add_argument('--request', required=True); p.add_argument('--config', default=str(DEFAULT_CONFIG))
     p.add_argument('--output', required=True); p.add_argument('--send', action='store_true')
+    p = commands.add_parser('api-check', help='Check local setup only; no network request or key output')
+    p.add_argument('--config', default=str(DEFAULT_CONFIG))
     p = commands.add_parser('compare')
     p.add_argument('--reports', nargs='+', required=True); p.add_argument('--output', required=True)
     args = parser.parse_args()
+    if args.command == 'api-check':
+        result = check_setup(args.config)
+        print(json.dumps(result, ensure_ascii=False))
+        raise SystemExit(0 if result['status'] == 'ready_for_connection_test' else 2)
     if args.command == 'prepare':
         folder, data, truth = prepare(args.alipay, args.wechat, args.output)
         build_page(data, truth, folder / 'review.html')
@@ -41,7 +48,7 @@ def main():
                           'records': len(data['records']), 'human_confirmed': 0, 'api': 'not_called'}, ensure_ascii=False))
         return
     if args.command == 'api-send':
-        result = send(load(args.request), load(args.config), args.output, authorized=args.send)
+        result = send(load(args.request), load_api_config(args.config), args.output, authorized=args.send)
     elif args.command == 'compare':
         reports = [load(path) for path in args.reports]
         if len({r['dataset_id'] for r in reports}) != 1 or len({r.get('truth_hash') for r in reports}) != 1:
@@ -71,7 +78,7 @@ def main():
         elif args.command == 'replay':
             result = replay(data, load(args.before), load(args.after), load(args.evidence))
         else:
-            result = make_request(data, load(args.candidate), truth, load(args.config))
+            result = make_request(data, load(args.candidate), truth, load_api_config(args.config))
         save_new(args.output, result)
     print(json.dumps({'output': str(Path(args.output).resolve()), 'status': result.get('status', 'saved')}, ensure_ascii=False))
 

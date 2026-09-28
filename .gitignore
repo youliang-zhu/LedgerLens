@@ -20,6 +20,7 @@ review.html
 .env.*
 !.env.example
 api.local.json
+config/api.json
 *.pem
 *.key
 

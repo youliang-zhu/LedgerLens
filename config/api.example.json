@@ -1,8 +1,9 @@
 {
   "protocol": "responses",
-  "endpoint": "",
+  "endpoint": "https://api.openai.com/v1/responses",
   "model": "gpt-6-astra",
   "key_env": "BOOKKEEPING_REVIEW_API_KEY",
+  "key_file": ".env",
   "max_output_tokens": 12000,
   "timeout_seconds": 180
 }

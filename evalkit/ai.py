@@ -1,18 +1,26 @@
 """Explicit, independently logged API review. Nothing sends data during preparation."""
 import json
-import os
 import time
 import urllib.request
+import urllib.error
+import re
 from urllib.parse import urlsplit
 from pathlib import Path
 from .common import canonical, digest, now, save_new
 from .rules import check
+from .api_config import resolve_key, validate_config
 
 PROMPT = Path(__file__).resolve().parent.parent / 'prompts' / 'reviewer-v1.txt'
 TYPES = {'missing', 'duplicate', 'false_merge', 'refund', 'transfer', 'income', 'totals', 'uncertainty'}
+SAFE_SOURCE_TYPES = {'商户消费', '微信红包', '微信红包（单发）', '微信红包（群发）',
+    '扫二维码付款', '二维码收款', '群收款', '转账', '转账红包', '退款', '商户退款',
+    '餐饮美食', '日用百货', '投资理财', '充值提现', '零钱充值', '零钱提现', '信用卡还款',
+    '交通出行', '服饰装扮', '数码电器', '生活服务', '住房物业', '医疗健康', '文化休闲',
+    '教育培训', '运动户外', '美容美发', '爱车养车', '酒店旅游', '亲友代付', '其他'}
 
 
 def make_request(data, candidate, truth, config):
+    validate_config(config)
     if config.get('protocol') != 'responses' or not config.get('model'):
         raise ValueError('Configure the explicit Responses-compatible protocol and selected model')
     if candidate.get('dataset_id') != data['dataset_id'] or (truth is not None and truth.get('dataset_id') != data['dataset_id']):
@@ -30,6 +38,10 @@ def make_request(data, candidate, truth, config):
     records = []
     for r in data['records']:
         item = {k: r[k] for k in ('source_id', 'platform', 'source_row', 'datetime', 'amount_cents', 'direction', 'type', 'status')}
+        # WeChat's type column may itself contain a merchant name, e.g.
+        # "merchant-name-退款". A column allowlist alone is not anonymization.
+        if item['type'] not in SAFE_SOURCE_TYPES:
+            item['type'] = '商户退款' if item['type'].endswith('-退款') else alias('source_type', item['type'])
         for key in ('counterparty', 'transaction_id', 'merchant_id', 'method'):
             item[key] = alias(key, r.get(key))
         records.append(item)
@@ -48,6 +60,12 @@ def make_request(data, candidate, truth, config):
                         'kind': e['kind'], 'amount_cents': e['amount_cents'],
                         'refund_allocations': [{'entry_id': entry_alias.get(a['entry_id'], 'UNKNOWN'),
                                                 'amount_cents': a['amount_cents']} for a in e.get('refund_allocations', [])]})
+        # Native draft bookkeeping and review markers are different facts. Preserve
+        # both without sending free-text labels, account names or product identity.
+        if e.get('native_kind') in {'expense', 'income', 'refund', 'transfer', 'excluded', 'pending'}:
+            entries[-1]['native_kind'] = e['native_kind']
+        if e.get('native_review_state') in {'pending', 'not_marked'}:
+            entries[-1]['native_review_state'] = e['native_review_state']
     # Notes, reviewer names, product brands and free-text candidate reasons stay local.
     decisions = []
     if truth:
@@ -58,7 +76,8 @@ def make_request(data, candidate, truth, config):
                               'refund_allocations': [{'group_id': group_alias.get(a['group_id'], 'UNKNOWN'),
                                                       'amount_cents': a['amount_cents']} for a in d.get('refund_allocations', [])]})
     report = check(data, candidate, truth)
-    payload = {'schema_version': 1, 'dataset_id': data['dataset_id'], 'candidate': 'CANDIDATE',
+    payload = {'schema_version': 1, 'task': 'Review this JSON evidence and return the required JSON object.',
+               'dataset_id': data['dataset_id'], 'candidate': 'CANDIDATE',
                'records': records, 'identifier_relationships': relationships, 'entries': entries,
                'truth': decisions, 'rules': [{'rule': r['rule'], 'status': r['status']} for r in report['rules']],
                'computed_totals': report['computed_totals'], 'reported_totals': {
@@ -130,9 +149,7 @@ def send(prepared, config, output_folder, authorized=False, transport=None):
                        'max_output_tokens': prepared['body']['max_output_tokens'], 'prompt': prepared['body']['instructions']})
     if expected != prepared['comparison_config_hash']:
         raise ValueError('Endpoint/config changed: prepare a new request for explicit inspection')
-    secret = os.environ.get(config.get('key_env', ''), '')
-    if not secret:
-        raise ValueError('API key environment variable is not configured')
+    secret, _ = resolve_key(config)
     folder = Path(output_folder)
     folder.mkdir(parents=True, exist_ok=False)
     save_new(folder / 'request.json', prepared)
@@ -163,6 +180,20 @@ def send(prepared, config, output_folder, authorized=False, transport=None):
         review = json.loads(''.join(texts))
         result['status'] = validate_response(review, prepared)
         result['review'] = review
+    except urllib.error.HTTPError as exc:
+        result['error_type'] = type(exc).__name__
+        result['http_status'] = exc.code
+        result['error_note'] = 'Provider rejected request; not a passed AI check.'
+        try:
+            error = json.loads(exc.read(1024 * 1024)).get('error', {})
+            # Never retain free-text messages: a provider may echo credentials or
+            # financial inputs. Short machine identifiers suffice for diagnosis.
+            for field in ('type', 'code', 'param'):
+                value = error.get(field)
+                if isinstance(value, str) and re.fullmatch(r'[A-Za-z0-9_.-]{1,100}', value) and secret not in value:
+                    result['provider_error_' + field] = value
+        except Exception:
+            pass
     except Exception as exc:
         # Do not log error bodies, URLs, credentials or provider-echoed input.
         result['error_type'] = type(exc).__name__
